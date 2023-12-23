@@ -1,23 +1,10 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdbool.h>
 
 #include <X11/Xlib.h>
-#include <X11/Xutil.h>
 #include <X11/extensions/Xcomposite.h>
-#include <X11/extensions/Xdamage.h>
-#include <X11/extensions/Xfixes.h>
 #include <X11/extensions/Xrender.h>
-#include <X11/extensions/shape.h>
-
-// https://wingolog.org/archives/2008/07/26/so-you-want-to-build-a-compositor
-void allow_input_passthrough(Display *display, Window overlay) {
-    XserverRegion region = XFixesCreateRegion(display, NULL, 0);
-
-    XFixesSetWindowShapeRegion(display, overlay, ShapeBounding, 0, 0, 0);
-    XFixesSetWindowShapeRegion(display, overlay, ShapeInput, 0, 0, region);
-
-    XFixesDestroyRegion(display, region);
-}
 
 int main(void) {
     Display *display = XOpenDisplay(NULL);
@@ -27,37 +14,43 @@ int main(void) {
     }
 
     int composite_opcode, composite_event, composite_error;
-    if(!XQueryExtension(display, "Composite", &composite_opcode, &composite_event, &composite_error)) {
+    if(!XQueryExtension(display, "Composite", &composite_opcode, &composite_event, &composite_error)
+            || !XCompositeQueryExtension(display, &composite_event, &composite_error)) {
         fprintf(stderr, "Missing \"Composite\" library");
         return EXIT_FAILURE;
     }
 
-    Window root = DefaultRootWindow(display);
-    Window window = XCreateSimpleWindow(display, root, 0, 0, 100, 100, 10, 10, 0);
-    XSelectInput(display, window, StructureNotifyMask);
-    XMapWindow(display, window);
-    XSync(display, 0);
+    for(int i = 0; i < ScreenCount(display); i++) {
+        Window root = RootWindow(display, i);
+        XCompositeRedirectSubwindows(display, root, CompositeRedirectAutomatic);
 
-    XCompositeRedirectSubwindows(display, window, CompositeRedirectManual);
-    XSelectInput(display, root, SubstructureNotifyMask);
-    XDamageCreate(display, root, XDamageReportRawRectangles);
-    XFixesSelectCursorInput(display, window, XFixesDisplayCursorNotifyMask);
+        Window unused;
+        Window *children;
+        unsigned int nchildren;
+        XQueryTree(display, root, &unused, &unused, &children, &nchildren);
 
-    Window overlay = XCompositeGetOverlayWindow(display, root);
-    allow_input_passthrough(display, overlay);
+        for(unsigned int j = 0; j < nchildren; j++) {
+            XWindowAttributes win;
+            XGetWindowAttributes(display, children[j], &win);
 
-    XEvent e;
-    while(True) {
-        XNextEvent(display, &e);
+            XRenderPictureAttributes pattr;
+            pattr.subwindow_mode = IncludeInferiors;
+            XRenderPictFormat *format = XRenderFindVisualFormat(display, win.visual);
+            Picture pic = XRenderCreatePicture(display, children[j], format, CPSubwindowMode, &pattr);
+            // Pixmap pix = XCreatePixmap(display, children[j], win.width, win.height, win.depth);
 
-        switch(e.type) {
-            case MapNotify:
-                printf("test\n");
-                break;
+            bool hasAlpha = format->type == PictTypeDirect && format->direct.alphaMask;
+            XRenderComposite(display, hasAlpha ? PictOpOver : PictOpSrc,
+                    pic, None, pic,
+                    0, 0,
+                    0, 0,
+                    win.x, win.y,
+                    win.width, win.height
+                );
+
+            // XFreePixmap(display, pix);
         }
     }
 
-    XCloseDisplay(display);
-
-    return 0;
+    return EXIT_SUCCESS;
 }
