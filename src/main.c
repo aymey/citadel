@@ -1,5 +1,3 @@
-#include "manager.h"
-
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -8,6 +6,8 @@
 #include <X11/extensions/Xcomposite.h>
 #include <X11/extensions/Xrender.h>
 #include <X11/extensions/Xdamage.h>
+
+#include "manager.h"
 
 int main(void) {
     Display *display = XOpenDisplay(NULL);
@@ -29,56 +29,38 @@ int main(void) {
         return EXIT_FAILURE;
     }
 
-    int damage_opcode, damage_event, damage_error;
+    int damage_opcode, damage_event = 0, damage_error;
     if(!XDamageQueryExtension(display, &damage_event, &damage_error)) {
         fprintf(stderr, "Missing \"Damage\" library\n");
         return EXIT_FAILURE;
     }
 
-    for(int i = 0; i < ScreenCount(display); i++) {
-        Window root = RootWindow(display, i);
-        XCompositeRedirectSubwindows(display, root, CompositeRedirectAutomatic);
+    composite_overlay(display);
 
-        Window overlay = XCompositeGetOverlayWindow(display, root);
-        allow_input_passthrough(display, overlay);
-        XRenderPictureAttributes opattr;
-        XWindowAttributes oa;
-        XGetWindowAttributes(display, overlay, &oa);
-        Picture overlay_buffer = XRenderCreatePicture(display, overlay, XRenderFindVisualFormat(display, oa.visual), None,&opattr);
-        XMapWindow(display, overlay);
-        XSync(display, 0);
+    XEvent e;
+    while(True) {
+        if(XPending(display)) {
+            XNextEvent(display, &e);
 
-        Window unused;
-        Window *children;
-        unsigned int nchildren;
-        XQueryTree(display, root, &unused, &unused, &children, &nchildren);
+            if(e.type == damage_event + XDamageNotify) {
+                printf("damage notify\n");
 
-        for(unsigned int j = 0; j < 10; j++) {
-            XWindowAttributes win;
-            XGetWindowAttributes(display, children[j], &win);
-
-            XRenderPictureAttributes pattr;
-            pattr.subwindow_mode = IncludeInferiors;
-            XRenderPictFormat *format = XRenderFindVisualFormat(display, win.visual);
-            Picture pic = XRenderCreatePicture(display, children[j],
-                    format, CPSubwindowMode,
-                    &pattr
-                );
-
-            bool hasAlpha = format->type == PictTypeDirect && format->direct.alphaMask;
-            XRenderComposite(display, hasAlpha ? PictOpOver : PictOpSrc,
-                    pic, None, overlay_buffer,
-                    -win.border_width, -win.border_width,
-                    0, 0,
-                    win.x, win.y,
-                    win.width, win.height
-                );
-
-            Damage damage = XDamageCreate(display, children[j], XDamageReportNonEmpty);
+                XDamageNotifyEvent dmg = *(XDamageNotifyEvent *) &e;
+                XDamageSubtract(display, dmg.damage, None, None);
+                composite_overlay(display);
+            }
+            // else if(e.type == shape_event + ShapeNotify) {}
+            else {
+                switch(e.type) {
+                    case ConfigureNotify:
+                    case Expose:
+                    case CreateNotify:
+                        composite_overlay(display);
+                        break;
+                }
+            }
         }
     }
-
-    while(True) {};
 
     return EXIT_SUCCESS;
 }
