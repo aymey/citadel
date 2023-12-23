@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -ggdb -lX11 -lXcomposite -lXrender -lXfixes -lXext
+CFLAGS = -Wall -Wextra -ggdb -lX11 -lXcomposite -lXrender -lXfixes -lXext -lXdamage
 TARGET = citadel
 
 citadel: src/*
