@@ -1,5 +1,6 @@
 #include "manager.h"
 
+#include <X11/Xlib.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <X11/extensions/Xfixes.h>
@@ -14,7 +15,7 @@ void composite_overlay(Display *display) {
 
         Window overlay = XCompositeGetOverlayWindow(display, root);
         XSelectInput(display, overlay, SubstructureNotifyMask | ExposureMask);
-        XClearWindow(display, overlay);
+
         allow_input_passthrough(display, overlay);
 
         XWindowAttributes oa;
@@ -34,28 +35,33 @@ void composite_overlay(Display *display) {
         XQueryTree(display, root, &unused, &unused, &children, &nchildren);
 
         for(unsigned int j = 0; j < nchildren; j++) {
+            if(children[j] == overlay)
+                continue;
+
             XWindowAttributes win;
             XGetWindowAttributes(display, children[j], &win);
 
             for(int x = 0; x < win.width; x++) {
                 for(int y = 0; y < win.height; y++) {
-                    if(win.x + x > oa.width || win.x + x < 0) break;
-                    if(win.y + y > oa.height || win.y + y < 0) break;
+                    if(win.x + x > oa.width || win.x + x < 0) continue;
+                    if(win.y + y > oa.height || win.y + y < 0) continue;
 
                     XPutPixel(img,
                             win.x+x, win.y+y,
                             shader_value(XGetPixel(img, win.x+x, win.y+y))
                         );
                 }
+
             }
         }
 
         XPutImage(display, overlay, gc, img, 0, 0, 0, 0, oa.width, oa.height);
+        XFree(children);
     }
 }
 
 unsigned long shader_value(unsigned long value) {
-    return 0;
+    return value*=2;
 }
 
 // https://wingolog.org/archives/2008/07/26/so-you-want-to-build-a-compositor
