@@ -55,7 +55,7 @@ void composite_overlay(Display *display) {
 }
 
 unsigned long shader_value(unsigned long value) {
-    return value*2;
+    return 0;
 }
 
 // https://wingolog.org/archives/2008/07/26/so-you-want-to-build-a-compositor
